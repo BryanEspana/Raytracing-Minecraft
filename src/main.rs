@@ -1,48 +1,102 @@
-mod vector3;
-mod ray;
-mod camera;
-mod materials;
-mod objects;
-mod lights;
-mod texture;
-mod scene;
-
-use camera::Camera;
-use scene::Scene;
-use vector3::Vector3;
-use image::{ImageBuffer, RgbImage};
+use bevy::prelude::*;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::window::WindowPlugin;
+use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::render::prelude::Mesh;
 
 fn main() {
-    let width = 800;
-    let height = 600;
-    let mut img: RgbImage = ImageBuffer::new(width, height);
+    App::new()
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: (1280., 720.).into(), 
+                ..default()
+            }),
+            ..default()
+        }))
+        .insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)))
+        .insert_resource(AmbientLight {
+            color: Color::WHITE,
+            brightness: 1.0,
+        })
+        .add_systems(Startup, setup)
+        .add_systems(Update, text_input)
+        .run();
+}
 
-    let mut camera = Camera::new(
-        Vector3::new(0.0, 1.0, -5.0),
-        Vector3::new(0.0, 1.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0),
-        45.0,
-        width as f32 / height as f32,
-    );
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn(Camera3dBundle {
+        transform: Transform::from_xyz(0.0, 20.0, 20.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y), // Ajuste de la cámara para mejor visualización
+        ..default()
+    });
 
-    let mut scene = Scene::new();
-    scene.setup_scene();
+    commands.spawn(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            shadows_enabled: true,
+            illuminance: 10000.0, // Aumentar la intensidad de la luz
+            ..default()
+        },
+        transform: Transform::from_xyz(5.0, 10.0, 5.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+        ..default()
+    });
+    let texture_handle = asset_server.load("textures\\branches.png");
 
-    // Ciclo de renderizado
-    for (x, y, pixel) in img.enumerate_pixels_mut() {
-        let u = x as f32 / (width as f32 - 1.0);
-        let v = y as f32 / (height as f32 - 1.0);
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    
+    let vertices = vec![
+        ([ -25.0,  0.0,  25.0], [0.0, 1.0, 0.0], [0.0, 0.0]), 
+        ([  25.0,  0.0,  25.0], [0.0, 1.0, 0.0], [1.0, 0.0]),
+        ([  25.0,  0.0, -25.0], [0.0, 1.0, 0.0], [1.0, 1.0]), 
+        ([ -25.0,  0.0, -25.0], [0.0, 1.0, 0.0], [0.0, 1.0]), 
+    ];
 
-        let ray = camera.get_ray(u, v);
-        let color = scene.trace_ray(&ray, 0);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices.iter().map(|(p, _, _)| *p).collect::<Vec<_>>());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vertices.iter().map(|(_, n, _)| *n).collect::<Vec<_>>());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vertices.iter().map(|(_, _, uv)| *uv).collect::<Vec<_>>());
 
-        *pixel = image::Rgb([
-            (color.x.min(1.0).max(0.0) * 255.0) as u8,
-            (color.y.min(1.0).max(0.0) * 255.0) as u8,
-            (color.z.min(1.0).max(0.0) * 255.0) as u8,
-        ]);
+    mesh.insert_indices(Indices::U32(vec![
+        0, 2, 1,
+        0, 3, 2, 
+    ]));
+
+    commands.spawn(PbrBundle {
+        mesh: meshes.add(mesh),
+        material: materials.add(StandardMaterial {
+            base_color_texture: Some(texture_handle),
+            ..default()
+        }),
+        ..default()
+    });
+}
+
+fn text_input(
+    mut evr_kbd: EventReader<KeyboardInput>,
+    mut query: Query<&mut Transform, With<Camera3d>>,
+) {
+    for mut transform in query.iter_mut() {
+        for ev in evr_kbd.read() {
+            if ev.state == ButtonState::Released {
+                continue;
+            }
+
+            match &ev.logical_key {
+                Key::Character(input) => {
+                    match input.as_str() {
+                        "w" => transform.translation.z -= 1.0,
+                        "s" => transform.translation.z += 1.0,
+                        "a" => transform.translation.x -= 1.0,
+                        "d" => transform.translation.x += 1.0,
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
     }
-
-    img.save("render.png").unwrap();
-    println!("Imagen renderizada guardada como render.png");
 }
